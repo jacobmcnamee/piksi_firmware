@@ -17,6 +17,10 @@
 #include "ch.h"
 #include "hal.h"
 
+#include <libswiftnav/logging.h>
+
+#define SYSTEM_CLOCK 130944000
+
 #if HAL_USE_PAL || defined(__DOXYGEN__)
 /**
  * @brief   PAL setup.
@@ -46,6 +50,11 @@ const PALConfig pal_default_config =
 };
 #endif
 
+const WDGConfig board_wdg_config = {
+  .pr = 6,
+  .rlr = 3750,
+};
+
 /**
  * @brief   Early initialization code.
  * @details This initialization must be performed just after stack setup
@@ -62,5 +71,26 @@ void __early_init(void)
  */
 void boardInit(void)
 {
-
+  /* Initialise SysTick timer that will be used as the ChibiOS kernel tick
+   * timer. */
+  SysTick->LOAD = SYSTEM_CLOCK / CH_CFG_ST_FREQUENCY - 1;
+  SysTick->VAL = 0;
+  SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk |
+                  SysTick_CTRL_TICKINT_Msk |
+                  SysTick_CTRL_ENABLE_Msk;
 }
+
+void board_preinit_hook(void)
+{
+  if ((RCC->CSR & 0xFF000000) != RCC_CSR_PADRSTF) {
+    if (RCC->CSR & RCC_CSR_WDGRSTF)
+      log_error("Piksi has reset due to a watchdog timeout.");
+    if (RCC->CSR & RCC_CSR_LPWRRSTF)
+      log_error("Low power reset detected.");
+    if (RCC->CSR & RCC_CSR_SFTRSTF)
+      log_info("Software reset detected.");
+    log_info("Reset reason: %02X", (unsigned int)(RCC->CSR >> 24));
+  }
+  RCC->CSR |= RCC_CSR_RMVF;
+}
+

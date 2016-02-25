@@ -28,7 +28,7 @@
 #include <hal.h>
 #undef memory_pool_t
 
-#include "board/leds.h"
+#include "peripherals/leds.h"
 #include "position.h"
 #include "nmea.h"
 #include "sbp.h"
@@ -41,14 +41,6 @@
 #include "base_obs.h"
 #include "ephemeris.h"
 #include "system_monitor.h"
-
-#define SOL_GPT GPTD5
-
-static void sol_gpt_cb(GPTDriver *);
-static GPTConfig sol_gpt_config = {
-  .frequency = STM32_TIMCLK1,
-  .callback = sol_gpt_cb,
-};
 
 MemoryPool obs_buff_pool;
 mailbox_t obs_mailbox;
@@ -295,36 +287,8 @@ void send_observations(u8 n, gps_time_t *t, navigation_measurement_t *m)
   }
 }
 
-static BSEMAPHORE_DECL(solution_wakeup_sem, TRUE);
-static void sol_gpt_cb(GPTDriver *gptd)
-{
-  (void)gptd;
-  chSysLockFromISR();
-
-  /* Wake up processing thread */
-  chBSemSignalI(&solution_wakeup_sem);
-
-  chSysUnlockFromISR();
-}
-
-static void timer_set_period_check(GPTDriver *gptd, uint32_t period)
-{
-  chSysLock();
-  gptChangeIntervalI(gptd, period);
-  u32 tmp = gptGetCounterX(gptd);
-  if (tmp > period) {
-    gpt_lld_set_counter(gptd, period);
-    log_warn("Solution thread missed deadline, "
-             "TIM counter = %lu, period = %lu", tmp, period);
-  }
-  chSysUnlock();
-}
-
 static void solution_simulation()
 {
-  /* Set the timer period appropriately. */
-  timer_set_period_check(&SOL_GPT, round(SOL_GPT.clock * (1.0/soln_freq)));
-
   simulation_step();
 
   /* TODO: The simulator's handling of time is a bit crazy. This is a hack
@@ -387,14 +351,15 @@ static void update_sat_elevations(const navigation_measurement_t nav_meas[],
 static WORKING_AREA_CCM(wa_solution_thread, 8000);
 static void solution_thread(void *arg)
 {
+  systime_t deadline = chVTGetSystemTimeX();
   (void)arg;
   chRegSetThreadName("solution");
 
   static navigation_measurement_t nav_meas_old[MAX_CHANNELS];
 
   while (TRUE) {
-    /* Waiting for the timer IRQ fire.*/
-    chBSemWait(&solution_wakeup_sem);
+    chThdSleepUntil(deadline);
+    deadline += (CH_CFG_ST_FREQUENCY/soln_freq);
 
     watchdog_notify(WD_NOTIFY_SOLUTION);
 
@@ -576,16 +541,16 @@ static void solution_thread(void *arg)
       }
 
       /* Calculate time till the next desired solution epoch. */
-      double dt = expected_tow + (1.0/soln_freq) - position_solution.time.tow;
+      double dt = expected_tow - position_solution.time.tow;
 
       /* Limit dt to 2 seconds maximum to prevent hang if dt calculated
        * incorrectly. */
-      if (dt > 2)
-        dt = 2;
+      if (dt > 1)
+        dt = 1;
 
       /* Reset timer period with the count that we will estimate will being
        * us up to the next solution time. */
-      timer_set_period_check(&SOL_GPT, round(SOL_GPT.clock * dt));
+      deadline += dt * CH_CFG_ST_FREQUENCY;
 
     } else {
       /* An error occurred with calc_PVT! */
@@ -823,10 +788,6 @@ void solution_setup()
   /* Start solution thread */
   chThdCreateStatic(wa_solution_thread, sizeof(wa_solution_thread),
                     HIGHPRIO-2, solution_thread, NULL);
-  /* Enable TIM5 clock. */
-  gptStart(&SOL_GPT, &sol_gpt_config);
-  gptStartContinuous(&SOL_GPT, SOL_GPT.clock);
-
   chThdCreateStatic(wa_time_matched_obs_thread,
                     sizeof(wa_time_matched_obs_thread), LOWPRIO,
                     time_matched_obs_thread, NULL);

@@ -21,7 +21,6 @@
 #include "sbp_utils.h"
 #include "track.h"
 #include "simulator.h"
-#include "peripherals/random.h"
 #include "settings.h"
 
 #include <libswiftnav/constants.h>
@@ -236,7 +235,7 @@ static bool nav_time_sync_get(nav_time_sync_t *sync, s32 *TOW_ms,
 void initialize_lock_counters(void)
 {
   for (u32 i=0; i < NUM_SATS; i++) {
-    tracking_lock_counters[i] = random_int();
+    tracking_lock_counters[i] = rand();
   }
 }
 
