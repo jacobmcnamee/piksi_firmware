@@ -115,6 +115,7 @@ CSRC := $(PORTSRC) \
         $(SWIFTNAV_ROOT)/src/error.o \
         $(SWIFTNAV_ROOT)/src/track.o \
         $(SWIFTNAV_ROOT)/src/track_gps_l1ca.o \
+        $(SWIFTNAV_ROOT)/src/track_gps_l2cm.o \
         $(SWIFTNAV_ROOT)/src/acq.o \
         $(SWIFTNAV_ROOT)/src/manage.o \
         $(SWIFTNAV_ROOT)/src/settings.o \
