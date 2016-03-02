@@ -392,8 +392,8 @@ static void manage_acq()
   track_count += 16*(1023.0-cp)*(1.0 + cf / GPS_L1_HZ);
 
   /* Start the tracking channel */
-  tracking_channel_init(chan, acq->sid, cf, track_count, cn0,
-                        TRACKING_ELEVATION_UNKNOWN);
+  tracker_channel_init(chan, acq->sid, cf, track_count, cn0,
+                       TRACKING_ELEVATION_UNKNOWN);
   /* TODO: Initialize elevation from ephemeris if we know it precisely */
 
   /* Start the decoder channel */
@@ -415,7 +415,7 @@ static u8 manage_track_new_acq(gnss_signal_t sid)
    * a newly acquired satellite into.
    */
   for (u8 i=0; i<nap_track_n_channels; i++) {
-    if (tracking_channel_available(i, sid) &&
+    if (tracker_channel_available(i, sid) &&
         decoder_channel_available(i, sid)) {
       return i;
     }
@@ -489,7 +489,7 @@ static void drop_channel(u8 channel_id) {
 
   /* Finally disable the decoder and tracking channels */
   decoder_channel_disable(channel_id);
-  tracking_channel_disable(channel_id);
+  tracker_channel_disable(channel_id);
 }
 
 /** Disable any tracking channel that has lost phase lock or is
@@ -587,9 +587,7 @@ s8 use_tracking_channel(u8 i)
       /* Channel time of week has been decoded. */
       && (tracking_channel_tow_ms_get(i) != TOW_INVALID)
       /* Nav bit polarity is known, i.e. half-cycles have been resolved. */
-      && tracking_channel_bit_polarity_resolved(i)
-      /* Estimated C/N0 is above some threshold */
-      && tracking_channel_cn0_useable(i))
+      && tracking_channel_bit_polarity_resolved(i))
       /* TODO: Alert flag is not set */
       {
     /* Ephemeris must be valid, not stale. Satellite must be healthy.
