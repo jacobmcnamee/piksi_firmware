@@ -19,6 +19,8 @@
 #include <libswiftnav/track.h>
 #include <libswiftnav/signal.h>
 
+#include <ch.h>
+
 #include "board/nap/track_channel.h"
 
 /** \addtogroup tracking
@@ -28,18 +30,14 @@
 
 /** \} */
 
-void tracking_setup(void);
-
 void tracking_send_state(void);
 void tracking_drop_satellite(gnss_signal_t sid);
 
 float propagate_code_phase(float code_phase, float carrier_freq, u32 n_samples);
 
 /* State management interface */
-bool tracking_channel_available(u8 channel, gnss_signal_t sid);
 void tracking_channel_init(u8 channel, gnss_signal_t sid, float carrier_freq,
                            u32 start_sample_count, float cn0_init, s8 elevation);
-void tracking_channel_disable(u8 channel);
 
 /* Update interface */
 void tracking_channels_update(u32 channels_mask);
@@ -70,5 +68,93 @@ s8 tracking_channel_evelation_degrees_get(u8 channel);
 /* Decoder interface */
 bool tracking_channel_nav_bit_get(u8 channel, s8 *soft_bit);
 bool tracking_channel_time_sync(u8 channel, s32 TOW_ms, s8 bit_polarity);
+
+
+
+typedef u32 update_count_t;
+
+typedef struct {
+  update_count_t update_count; /**< Number of ms channel has been running */
+  update_count_t mode_change_count;
+                               /**< update_count at last mode change. */
+  update_count_t cn0_below_use_thres_count;
+                               /**< update_count value when SNR was
+                                  last below the use threshold. */
+  update_count_t cn0_above_drop_thres_count;
+                               /**< update_count value when SNR was
+                                  last above the drop threshold. */
+  update_count_t ld_opti_locked_count;
+                               /**< update_count value when optimistic
+                                  phase detector last "locked". */
+  update_count_t ld_pess_unlocked_count;
+                               /**< update_count value when pessimistic
+                                  phase detector last "unlocked". */
+  s32 TOW_ms;                  /**< TOW in ms. */
+
+  u32 sample_count;            /**< Total num samples channel has tracked for. */
+  u32 code_phase_early;        /**< Early code phase. */
+  double code_phase_rate;      /**< Code phase rate in chips/s. */
+  s64 carrier_phase;           /**< Carrier phase in NAP register units. */
+  double carrier_freq;         /**< Carrier frequency Hz. */
+  float cn0;                   /**< Current estimate of C/N0. */
+} tracker_common_data_t;
+
+typedef void tracker_data_t;
+
+/** Instance of a tracker implementation. */
+typedef struct {
+  /** true if tracker is in use. */
+  bool active;
+  /** Pointer to implementation-specific data used by tracker instance. */
+  tracker_data_t *data;
+} tracker_t;
+
+/** Info associated with a tracker channel. */
+typedef struct {
+  gnss_signal_t sid;    /**< Current signal being decoded. */
+} tracker_channel_info_t;
+
+/** Tracker interface function template. */
+typedef void (*tracker_interface_function_t)(
+                 const tracker_channel_info_t *channel_info,
+                 const tracker_common_data_t *common_data,
+                 tracker_data_t *tracker_data);
+
+/** Interface to a tracker implementation. */
+typedef struct {
+  /** Code type for which the implementation may be used. */
+  enum code code;
+  /** Init function. Called to set up tracker instance when decoding begins. */
+  tracker_interface_function_t init;
+  /** Disable function. Called when tracking stops. */
+  tracker_interface_function_t disable;
+  /** Update function. Called when new correlation outputs are available. */
+  tracker_interface_function_t update;
+  /** Array of tracker instances used by this interface. */
+  tracker_t *trackers;
+  /** Number of tracker instances in trackers array. */
+  u8 num_trackers;
+} tracker_interface_t;
+
+/** List element passed to tracker_interface_register(). */
+typedef struct tracker_interface_list_element_t {
+  const tracker_interface_t *interface;
+  struct tracker_interface_list_element_t *next;
+} tracker_interface_list_element_t;
+
+typedef u8 tracker_channel_id_t;
+#define TRACKER_CHANNEL_ID_INVALID 0xff
+
+void track_setup(void);
+void tracker_interface_register(tracker_interface_list_element_t *element);
+bool tracker_channel_available(gnss_signal_t sid);
+tracker_channel_id_t tracker_channel_init(gnss_signal_t sid);
+bool tracker_channel_disable(tracker_channel_id_t id);
+
+void tracker_common_data_update(const tracker_common_data_t *common_data);
+s32 tracker_tow_update(u32 int_ms);
+void tracker_bit_sync_update(u32 int_ms, s32 corr_prompt_real);
+bool tracker_channel_bit_aligned(void);
+void tracker_channel_correlations_send(const corr_t *cs);
 
 #endif
