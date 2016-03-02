@@ -183,7 +183,7 @@ static msg_t system_monitor_thread(void *arg)
       if (base_distance > BASE_STATION_DISTANCE_THRESHOLD) {
         log_warn("Invalid surveyed position coordinates\n");
       } else {
-        sbp_send_msg(SBP_MSG_BASE_POS, sizeof(msg_base_pos_t), (u8 *)&base_llh);
+        sbp_send_msg(SBP_MSG_BASE_POS_ECEF, sizeof(msg_base_pos_ecef_t), (u8 *)&base_ecef);
       }
     }
 
@@ -194,8 +194,10 @@ static msg_t system_monitor_thread(void *arg)
       iar_state.num_hyps = dgnss_iar_num_hyps();
     }
     sbp_send_msg(SBP_MSG_IAR_STATE, sizeof(msg_iar_state_t), (u8 *)&iar_state);
-
-    send_thread_states();
+    
+    DO_EVERY(2, 
+     send_thread_states(); 
+    );
 
     u32 err = nap_error_rd_blocking();
     if (err) {

@@ -15,88 +15,95 @@
 #include <libswiftnav/ephemeris.h>
 #include <libswiftnav/logging.h>
 #include <ch.h>
+#include <assert.h>
 
 #include "sbp.h"
 #include "sbp_utils.h"
 #include "track.h"
 #include "timing.h"
 #include "ephemeris.h"
+#include "signal.h"
+
+#define EPHEMERIS_TRANSMIT_EPOCH_SPACING_ms   (15 * 1000)
+#define EPHEMERIS_MESSAGE_SPACING_ms          (200)
 
 MUTEX_DECL(es_mutex);
-ephemeris_t es[MAX_SATS] _CCM;
-static ephemeris_t es_candidate[MAX_SATS] _CCM;
+static ephemeris_t es[PLATFORM_SIGNAL_COUNT] _CCM;
+static ephemeris_t es_candidate[PLATFORM_SIGNAL_COUNT] _CCM;
 
-static void ephemeris_new(ephemeris_t *e)
-{
-  gps_time_t t = get_current_time();
-  if (!ephemeris_good(&es[e->prn], t)) {
-    /* Our currently used ephemeris is bad, so we assume this is better. */
-    log_info("New untrusted ephemeris for PRN %02d", e->prn+1);
-    chMtxLock(&es_mutex);
-    es[e->prn] = es_candidate[e->prn] = *e;
-    chMtxUnlock();
+static WORKING_AREA_CCM(wa_ephemeris_thread, 1400);
 
-  } else if (ephemeris_equal(&es_candidate[e->prn], e)) {
-    /* The received ephemeris matches our candidate, so we trust it. */
-    log_info("New trusted ephemeris for PRN %02d", e->prn+1);
-    chMtxLock(&es_mutex);
-    es[e->prn] = *e;
-    chMtxUnlock();
-  } else {
-    /* This is our first reception of this new ephemeris, so treat it with
-     * suspicion and call it the new candidate. */
-    log_info("New ephemeris candidate for PRN %02d", e->prn+1);
-    chMtxLock(&es_mutex);
-    es_candidate[e->prn] = *e;
-    chMtxUnlock();
-  }
-}
+static msg_t ephemeris_thread(void *arg);
 
-static WORKING_AREA_CCM(wa_nav_msg_thread, 3000);
-static msg_t nav_msg_thread(void *arg)
+static msg_t ephemeris_thread(void *arg)
 {
   (void)arg;
-  chRegSetThreadName("nav msg");
+  chRegSetThreadName("ephemeris");
 
-  while (TRUE) {
+  systime_t tx_epoch = chTimeNow();
+  while (1) {
 
-    /* TODO: This should be trigged by a semaphore from the tracking loop, not
-     * just ran periodically. */
+    for (u32 i=0; i<PLATFORM_SIGNAL_COUNT; i++) {
+      bool success = false;
+      const ephemeris_t *e = &es[i];
+      gps_time_t t = get_current_time();
 
+      /* Quickly check validity before locking */
+      if (ephemeris_valid(e, &t)) {
+        ephemeris_lock();
+        /* Now that we are locked, reverify validity and transmit */
+        if (ephemeris_valid(e, &t)) {
+          msg_ephemeris_t msg;
+          pack_ephemeris(e, &msg);
+          sbp_send_msg(SBP_MSG_EPHEMERIS, sizeof(msg_ephemeris_t), (u8 *)&msg);
+          success = true;
+        }
+        ephemeris_unlock();
+      }
 
-    for (u8 i=0; i<nap_track_n_channels; i++) {
-      chThdSleepMilliseconds(100);
-      tracking_channel_t *ch = &tracking_channel[i];
-      ephemeris_t e = {.prn = ch->prn};
-
-      /* Check if there is a new nav msg subframe to process.
-       * TODO: move this into a function */
-      if ((ch->state != TRACKING_RUNNING) ||
-          (ch->nav_msg.subframe_start_index == 0))
-        continue;
-
-      /* Decode ephemeris to temporary struct */
-      __asm__("CPSID i;");
-      s8 ret = process_subframe(&ch->nav_msg, &e);
-      __asm__("CPSIE i;");
-
-      if (ret <= 0)
-        continue;
-
-      /* Decoded a new ephemeris. */
-      ephemeris_new(&e);
-
-      if (!es[ch->prn].healthy) {
-        log_info("PRN %02d unhealthy", ch->prn+1);
-      } else {
-        msg_ephemeris_t msg;
-        pack_ephemeris(&es[ch->prn], &msg);
-        sbp_send_msg(SBP_MSG_EPHEMERIS, sizeof(msg_ephemeris_t), (u8 *)&msg);
+      if (success) {
+        chThdSleep(MS2ST(EPHEMERIS_MESSAGE_SPACING_ms));
       }
     }
+
+    // wait for the next transmit epoch
+    tx_epoch += MS2ST(EPHEMERIS_TRANSMIT_EPOCH_SPACING_ms);
+    chThdSleepUntil(tx_epoch);
   }
 
   return 0;
+}
+
+void ephemeris_new(ephemeris_t *e)
+{
+  assert(sid_supported(e->sid));
+
+  char buf[SID_STR_LEN_MAX];
+  sid_to_string(buf, sizeof(buf), e->sid);
+
+  gps_time_t t = get_current_time();
+  u32 index = sid_to_global_index(e->sid);
+  if (!ephemeris_valid(&es[index], &t)) {
+    /* Our currently used ephemeris is bad, so we assume this is better. */
+    log_info("New untrusted ephemeris for %s", buf);
+    ephemeris_lock();
+    es[index] = es_candidate[index] = *e;
+    ephemeris_unlock();
+
+  } else if (ephemeris_equal(&es_candidate[index], e)) {
+    /* The received ephemeris matches our candidate, so we trust it. */
+    log_info("New trusted ephemeris for %s", buf);
+    ephemeris_lock();
+    es[index] = *e;
+    ephemeris_unlock();
+  } else {
+    /* This is our first reception of this new ephemeris, so treat it with
+     * suspicion and call it the new candidate. */
+    log_info("New ephemeris candidate for %s", buf);
+    ephemeris_lock();
+    es_candidate[index] = *e;
+    ephemeris_unlock();
+  }
 }
 
 static void ephemeris_msg_callback(u16 sender_id, u8 len, u8 msg[], void* context)
@@ -110,7 +117,7 @@ static void ephemeris_msg_callback(u16 sender_id, u8 len, u8 msg[], void* contex
 
   ephemeris_t e;
   unpack_ephemeris((msg_ephemeris_t *)msg, &e);
-  if (e.prn >= MAX_SATS) {
+  if (!sid_supported(e.sid)) {
     log_warn("Ignoring ephemeris for invalid sat");
     return;
   }
@@ -122,8 +129,8 @@ void ephemeris_setup(void)
 {
   memset(es_candidate, 0, sizeof(es_candidate));
   memset(es, 0, sizeof(es));
-  for (u8 i=0; i<32; i++) {
-    es[i].prn = i;
+  for (u32 i=0; i<PLATFORM_SIGNAL_COUNT; i++) {
+    es[i].sid = sid_from_global_index(i);
   }
 
   static sbp_msg_callbacks_node_t ephemeris_msg_node;
@@ -133,7 +140,23 @@ void ephemeris_setup(void)
     &ephemeris_msg_node
   );
 
-  chThdCreateStatic(wa_nav_msg_thread, sizeof(wa_nav_msg_thread),
-                    NORMALPRIO-1, nav_msg_thread, NULL);
+  chThdCreateStatic(wa_ephemeris_thread, sizeof(wa_ephemeris_thread),
+                    NORMALPRIO-10, ephemeris_thread, NULL);
 }
 
+void ephemeris_lock(void)
+{
+  chMtxLock(&es_mutex);
+}
+
+void ephemeris_unlock(void)
+{
+  Mutex *m = chMtxUnlock();
+  assert(m == &es_mutex);
+}
+
+ephemeris_t *ephemeris_get(gnss_signal_t sid)
+{
+  assert(sid_supported(sid));
+  return &es[sid_to_global_index(sid)];
+}

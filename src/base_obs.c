@@ -20,6 +20,7 @@
 #include <libswiftnav/ephemeris.h>
 #include <libswiftnav/coord_system.h>
 #include <libswiftnav/linear_algebra.h>
+#include <libswiftnav/signal.h>
 
 #include "board/leds.h"
 #include "position.h"
@@ -33,6 +34,7 @@
 #include "timing.h"
 #include "base_obs.h"
 #include "ephemeris.h"
+#include "signal.h"
 
 extern bool disable_raim;
 
@@ -56,13 +58,13 @@ bool_t base_pos_known = false;
 double base_pos_ecef[3];
 
 /** SBP callback for when the base station sends us a message containing its
- * known location.
+ * known location in LLH coordinates.
  * Stores the base station position in the global #base_pos_ecef variable and
  * sets #base_pos_known to `true`.
  */
-static void base_pos_callback(u16 sender_id, u8 len, u8 msg[], void* context)
+static void base_pos_llh_callback(u16 sender_id, u8 len, u8 msg[], void* context)
 {
-  (void) context; (void) len; (void) msg; (void) sender_id;
+  (void) context; (void) len; (void) sender_id;
 
   double llh_degrees[3];
   double llh[3];
@@ -74,6 +76,21 @@ static void base_pos_callback(u16 sender_id, u8 len, u8 msg[], void* context)
 
   chMtxLock(&base_pos_lock);
   wgsllh2ecef(llh, base_pos_ecef);
+  base_pos_known = true;
+  chMtxUnlock();
+}
+
+/** SBP callback for when the base station sends us a message containing its
+ * known location in ECEF coordinates.
+ * Stores the base station position in the global #base_pos_ecef variable and
+ * sets #base_pos_known to `true`.
+ */
+static void base_pos_ecef_callback(u16 sender_id, u8 len, u8 msg[], void* context)
+{
+  (void) context; (void) len; (void) sender_id;
+
+  chMtxLock(&base_pos_lock);
+  memcpy(base_pos_ecef, msg, 3*sizeof(double));
   base_pos_known = true;
   chMtxUnlock();
 }
@@ -274,19 +291,18 @@ static void obs_callback(u16 sender_id, u8 len, u8 msg[], void* context)
   /* Pull out the contents of the message. */
   packed_obs_content_t *obs = (packed_obs_content_t *)(msg + sizeof(observation_header_t));
   for (u8 i=0; i<obs_in_msg; i++) {
-    /* Check the PRN is valid. e.g. simulation mode outputs test observations
-     * with PRNs >200. */
-    if (obs[i].sid > 31) { /* TODO prn - sid; assume everything below is 0x1F masked! */
+    gnss_signal_t sid = sid_from_sbp(obs[i].sid);
+    if (!sid_supported(sid))
       continue;
-    }
 
     /* Flag this as visible/viable to acquisition/search */
-    manage_set_obs_hint(obs[i].sid);
+    manage_set_obs_hint(sid);
 
     /* Check if we have an ephemeris for this satellite, we will need this to
      * fill in satellite position etc. parameters. */
-    chMtxLock(&es_mutex);
-    if (ephemeris_good(&es[obs[i].sid], t)) {
+    ephemeris_lock();
+    ephemeris_t *e = ephemeris_get(sid);
+    if (ephemeris_valid(e, &t)) {
       /* Unpack the observation into a navigation_measurement_t. */
       unpack_obs_content(
         &obs[i],
@@ -294,12 +310,12 @@ static void obs_callback(u16 sender_id, u8 len, u8 msg[], void* context)
         &base_obss_rx.nm[base_obss_rx.n].carrier_phase,
         &base_obss_rx.nm[base_obss_rx.n].snr,
         &base_obss_rx.nm[base_obss_rx.n].lock_counter,
-        &base_obss_rx.nm[base_obss_rx.n].prn
+        &base_obss_rx.nm[base_obss_rx.n].sid
       );
       double clock_err;
       double clock_rate_err;
       /* Calculate satellite parameters using the ephemeris. */
-      calc_sat_state(&es[obs[i].sid], t,
+      calc_sat_state(e, &t,
                      base_obss_rx.nm[base_obss_rx.n].sat_pos,
                      base_obss_rx.nm[base_obss_rx.n].sat_vel,
                      &clock_err, &clock_rate_err);
@@ -312,7 +328,7 @@ static void obs_callback(u16 sender_id, u8 len, u8 msg[], void* context)
       base_obss_rx.nm[base_obss_rx.n].tot = t;
       base_obss_rx.n++;
     }
-    chMtxUnlock();
+    ephemeris_unlock();
   }
 
   /* If we can, and all the obs have been received, update to using the new
@@ -340,11 +356,18 @@ void base_obs_setup()
 
   /* Register callbacks on base station messages. */
 
-  static sbp_msg_callbacks_node_t base_pos_node;
+  static sbp_msg_callbacks_node_t base_pos_llh_node;
   sbp_register_cbk(
-    SBP_MSG_BASE_POS,
-    &base_pos_callback,
-    &base_pos_node
+    SBP_MSG_BASE_POS_LLH,
+    &base_pos_llh_callback,
+    &base_pos_llh_node
+  );
+
+  static sbp_msg_callbacks_node_t base_pos_ecef_node;
+  sbp_register_cbk(
+    SBP_MSG_BASE_POS_ECEF,
+    &base_pos_ecef_callback,
+    &base_pos_ecef_node
   );
 
   static sbp_msg_callbacks_node_t obs_packed_node;

@@ -1,6 +1,7 @@
 /*
- * Copyright (C) 2014 Swift Navigation Inc.
+ * Copyright (C) 2014, 2016 Swift Navigation Inc.
  * Contact: Fergus Noble <fergus@swift-nav.com>
+ *          Pasi Miettinen <pasi.miettinen@exafore.com>
  *
  * This source is subject to the license found in the file 'LICENSE' which must
  * be be distributed together with this source. All other rights reserved.
@@ -27,6 +28,38 @@
 /** \defgroup sbp_utils SBP Utils
  * Convert to and from SBP message types and other useful functions.
  * \{ */
+
+sbp_gnss_signal_t sid_to_sbp(const gnss_signal_t from)
+{
+  sbp_gnss_signal_t sbp_sid = {
+    .code = from.code,
+    .sat = from.sat,
+  };
+
+  /* Maintain legacy compatibility with GPS PRN encoding. Sat values for other
+   * constellations are "real" satellite identifiers.
+   */
+  if (sid_to_constellation(from) == CONSTELLATION_GPS)
+    sbp_sid.sat -= GPS_FIRST_PRN;
+
+  return sbp_sid;
+}
+
+gnss_signal_t sid_from_sbp(const sbp_gnss_signal_t from)
+{
+  gnss_signal_t sid = {
+    .code = from.code,
+    .sat = from.sat,
+  };
+
+  /* Maintain legacy compatibility with GPS PRN encoding. Sat values for other
+   * constellations are "real" satellite identifiers.
+   */
+  if (sid_to_constellation(sid) == CONSTELLATION_GPS)
+    sid.sat += GPS_FIRST_PRN;
+
+  return sid;
+}
 
 void sbp_make_gps_time(msg_gps_time_t *t_out, const gps_time_t *t_in, u8 flags)
 {
@@ -146,7 +179,7 @@ void sbp_make_baseline_ned(msg_baseline_ned_t *baseline_ned, const gps_time_t *t
   baseline_ned->flags = flags;
 }
 
-void sbp_make_heading(msg_baseline_heading_t *baseline_heading, const gps_time_t *t, 
+void sbp_make_heading(msg_baseline_heading_t *baseline_heading, const gps_time_t *t,
                       const double heading, u8 n_sats, u8 flags) {
     baseline_heading->tow = round(t->tow * 1e3);
     baseline_heading->heading = (u32)round(heading * 1e3);
@@ -171,13 +204,13 @@ void pack_obs_header(const gps_time_t *t, u8 total, u8 count, observation_header
 }
 
 void unpack_obs_content(const packed_obs_content_t *msg, double *P, double *L,
-                        double *snr, u16 *lock_counter, u8 *prn)
+                        double *snr, u16 *lock_counter, gnss_signal_t *sid)
 {
   *P   = ((double)msg->P) / MSG_OBS_P_MULTIPLIER;
   *L   = ((double)msg->L.i) + (((double)msg->L.f) / MSG_OSB_LF_MULTIPLIER);
   *snr = ((double)msg->cn0) / MSG_OBS_SNR_MULTIPLIER;
   *lock_counter = ((u16)msg->lock);
-  *prn = msg->sid & 0x1F; /* TODO: prn -> sid */
+  *sid = sid_from_sbp(msg->sid);
 }
 
 /** Pack GPS observables into a `msg_obs_content_t` struct.
@@ -188,12 +221,12 @@ void unpack_obs_content(const packed_obs_content_t *msg, double *P, double *L,
  * \param snr Signal-to-noise ratio
  * \param lock_counter Lock counter is an arbitrary integer that should change
  *                     if the carrier phase ambiguity is ever reset
- * \param prn Satellite PRN identifier
+ * \param sid Signal ID
  * \param msg Pointer to a `msg_obs_content_t` struct to fill out
  * \return `0` on success or `-1` on an overflow error
  */
-s8 pack_obs_content(double P, double L, double snr, u16 lock_counter, u8 prn,
-                    packed_obs_content_t *msg)
+s8 pack_obs_content(double P, double L, double snr, u16 lock_counter,
+                    gnss_signal_t sid, packed_obs_content_t *msg)
 {
 
   s64 P_fp = llround(P * MSG_OBS_P_MULTIPLIER);
@@ -225,73 +258,77 @@ s8 pack_obs_content(double P, double L, double snr, u16 lock_counter, u8 prn,
 
   msg->lock = lock_counter;
 
-  msg->sid = prn; /* TODO prn -> sid */
+  msg->sid = sid_to_sbp(sid);
 
   return 0;
 }
 
 void unpack_ephemeris(const msg_ephemeris_t *msg, ephemeris_t *e)
 {
-   e->tgd       =  msg->tgd;
-   e->crs       =  msg->c_rs;
-   e->crc       =  msg->c_rc;
-   e->cuc       =  msg->c_uc;
-   e->cus       =  msg->c_us;
-   e->cic       =  msg->c_ic;
-   e->cis       =  msg->c_is;
-   e->dn        =  msg->dn;
-   e->m0        =  msg->m0;
-   e->ecc       =  msg->ecc;
-   e->sqrta     =  msg->sqrta;
-   e->omega0    =  msg->omega0;
-   e->omegadot  =  msg->omegadot;
-   e->w         =  msg->w;
-   e->inc       =  msg->inc;
-   e->inc_dot   =  msg->inc_dot;
-   e->af0       =  msg->af0;
-   e->af1       =  msg->af1;
-   e->af2       =  msg->af2;
-   e->toe.tow   =  msg->toe_tow;
-   e->toe.wn    =  msg->toe_wn;
-   e->toc.tow   =  msg->toc_tow;
-   e->toc.wn    =  msg->toe_wn;
-   e->valid     =  msg->valid;
-   e->healthy   =  msg->healthy;
-   e->prn       =  msg->sid & 0x1F; /* TODO prn -> sid */
-   e->iode      =  msg->iode;
+  e->kepler.tgd       = msg->tgd;
+  e->kepler.crs       = msg->c_rs;
+  e->kepler.crc       = msg->c_rc;
+  e->kepler.cuc       = msg->c_uc;
+  e->kepler.cus       = msg->c_us;
+  e->kepler.cic       = msg->c_ic;
+  e->kepler.cis       = msg->c_is;
+  e->kepler.dn        = msg->dn;
+  e->kepler.m0        = msg->m0;
+  e->kepler.ecc       = msg->ecc;
+  e->kepler.sqrta     = msg->sqrta;
+  e->kepler.omega0    = msg->omega0;
+  e->kepler.omegadot  = msg->omegadot;
+  e->kepler.w         = msg->w;
+  e->kepler.inc       = msg->inc;
+  e->kepler.inc_dot   = msg->inc_dot;
+  e->kepler.af0       = msg->af0;
+  e->kepler.af1       = msg->af1;
+  e->kepler.af2       = msg->af2;
+  e->toe.tow          = msg->toe_tow;
+  e->toe.wn           = msg->toe_wn;
+  e->kepler.toc.tow   = msg->toc_tow;
+  e->kepler.toc.wn    = msg->toe_wn;
+  e->valid            = msg->valid;
+  e->healthy          = msg->healthy;
+  e->sid              = sid_from_sbp(msg->sid);
+  e->kepler.iode      = msg->iode;
+  e->kepler.iodc      = msg->iodc;
+  e->fit_interval     = 4; /* TODO: this is a work around until SBP updated */
+  e->ura              = 2.0f; /* TODO: this is a work around until SBP updated*/
 }
 
 void pack_ephemeris(const ephemeris_t *e, msg_ephemeris_t *msg)
 {
-  gps_time_t toe = e->toe;
-  gps_time_t toc = e->toc;
-  msg->tgd       = e->tgd;
-  msg->c_rs      = e->crs;
-  msg->c_rc      = e->crc;
-  msg->c_uc      = e->cuc;
-  msg->c_us      = e->cus;
-  msg->c_ic      = e->cic;
-  msg->c_is      = e->cis;
-  msg->dn        = e->dn;
-  msg->m0        = e->m0;
-  msg->ecc       = e->ecc;
-  msg->sqrta     = e->sqrta;
-  msg->omega0    = e->omega0;
-  msg->omegadot  = e->omegadot;
-  msg->w         = e->w;
-  msg->inc       = e->inc;
-  msg->inc_dot   = e->inc_dot;
-  msg->af0       = e->af0;
-  msg->af1       = e->af1;
-  msg->af2       = e->af2;
-  msg->toe_tow   = toe.tow;
-  msg->toe_wn    = toe.wn;
-  msg->toc_tow   = toc.tow;
-  msg->toe_wn    = toc.wn;
-  msg->valid     = e->valid;
-  msg->healthy   = e->healthy;
-  msg->sid       = e->prn; /* TODO: prn -> sid */
-  msg->iode      = e->iode;
+  gps_time_t toe      = e->toe;
+  gps_time_t toc      = e->kepler.toc;
+  msg->tgd            = e->kepler.tgd;
+  msg->c_rs           = e->kepler.crs;
+  msg->c_rc           = e->kepler.crc;
+  msg->c_uc           = e->kepler.cuc;
+  msg->c_us           = e->kepler.cus;
+  msg->c_ic           = e->kepler.cic;
+  msg->c_is           = e->kepler.cis;
+  msg->dn             = e->kepler.dn;
+  msg->m0             = e->kepler.m0;
+  msg->ecc            = e->kepler.ecc;
+  msg->sqrta          = e->kepler.sqrta;
+  msg->omega0         = e->kepler.omega0;
+  msg->omegadot       = e->kepler.omegadot;
+  msg->w              = e->kepler.w;
+  msg->inc            = e->kepler.inc;
+  msg->inc_dot        = e->kepler.inc_dot;
+  msg->af0            = e->kepler.af0;
+  msg->af1            = e->kepler.af1;
+  msg->af2            = e->kepler.af2;
+  msg->toe_tow        = toe.tow;
+  msg->toe_wn         = toe.wn;
+  msg->toc_tow        = toc.tow;
+  msg->toc_wn         = toc.wn;
+  msg->valid          = e->valid;
+  msg->healthy        = e->healthy;
+  msg->sid            = sid_to_sbp(e->sid);
+  msg->iode           = e->kepler.iode;
+  msg->iodc           = e->kepler.iodc;
 }
 
 /** \} */

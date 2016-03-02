@@ -92,7 +92,6 @@ CSRC := $(PORTSRC) \
         $(SWIFTNAV_ROOT)/src/board/nap/nap_conf.o \
         $(SWIFTNAV_ROOT)/src/board/nap/acq_channel.o \
         $(SWIFTNAV_ROOT)/src/board/nap/track_channel.o \
-        $(SWIFTNAV_ROOT)/src/board/nap/cw_channel.o \
         $(SWIFTNAV_ROOT)/src/board/m25_flash.o \
         $(SWIFTNAV_ROOT)/src/board/max2769.o \
         $(SWIFTNAV_ROOT)/src/board/leds.o \
@@ -114,8 +113,9 @@ CSRC := $(PORTSRC) \
         $(SWIFTNAV_ROOT)/src/sbp_fileio.o \
         $(SWIFTNAV_ROOT)/src/sbp_utils.o \
         $(SWIFTNAV_ROOT)/src/error.o \
-        $(SWIFTNAV_ROOT)/src/cw.o \
         $(SWIFTNAV_ROOT)/src/track.o \
+        $(SWIFTNAV_ROOT)/src/track_gps_l1ca.o \
+				$(SWIFTNAV_ROOT)/src/track_gps_l2cm.o \
         $(SWIFTNAV_ROOT)/src/acq.o \
         $(SWIFTNAV_ROOT)/src/manage.o \
         $(SWIFTNAV_ROOT)/src/settings.o \
@@ -129,6 +129,10 @@ CSRC := $(PORTSRC) \
         $(SWIFTNAV_ROOT)/src/nmea.o \
         $(SWIFTNAV_ROOT)/src/system_monitor.o \
         $(SWIFTNAV_ROOT)/src/ephemeris.o \
+        $(SWIFTNAV_ROOT)/src/pps.o \
+        $(SWIFTNAV_ROOT)/src/decode.o \
+        $(SWIFTNAV_ROOT)/src/decode_gps_l1.o \
+        $(SWIFTNAV_ROOT)/src/signal.o \
         main.c
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
@@ -262,4 +266,3 @@ ULIBS =
 .DEFAULT_GOAL = all
 include $(SWIFTNAV_ROOT)/ext/Makefile.include
 include $(SWIFTNAV_ROOT)/ChibiOS_rules.mk
-

@@ -28,6 +28,8 @@
 #include "init.h"
 #include "manage.h"
 #include "track.h"
+#include "track_gps_l1ca.h"
+#include "track_gps_l2cm.h"
 #include "timing.h"
 #include "ext_events.h"
 #include "solution.h"
@@ -38,6 +40,10 @@
 #include "settings.h"
 #include "sbp_fileio.h"
 #include "ephemeris.h"
+#include "pps.h"
+#include "decode.h"
+#include "decode_gps_l1.h"
+#include "signal.h"
 
 extern void ext_setup(void);
 
@@ -135,6 +141,7 @@ s8 compare_version(const char *a, const char *b)
   return (commit_a < commit_b) ? -1 : (commit_a > commit_b);
 }
 
+
 int main(void)
 {
   /* Initialise SysTick timer that will be used as the ChibiOS kernel tick
@@ -151,6 +158,7 @@ int main(void)
   init();
   settings_setup();
   usarts_setup();
+  signal_init();
 
   check_nap_auth();
 
@@ -172,13 +180,17 @@ int main(void)
   static s32 serial_number;
   serial_number = nap_conf_rd_serial_number();
 
+  rng_setup();
   max2769_setup();
   timing_setup();
   ext_event_setup();
   position_setup();
   tracking_setup();
+  track_gps_l1ca_register();
+  track_gps_l2cm_register();
+  decode_setup();
+  decode_gps_l1_register();
 
-  rng_setup();
   manage_acq_setup();
   manage_track_setup();
   system_monitor_setup();
@@ -189,6 +201,7 @@ int main(void)
 
   sbp_fileio_setup();
   ext_setup();
+  pps_setup();
 
   READ_ONLY_PARAMETER("system_info", "serial_number", serial_number, TYPE_INT);
   READ_ONLY_PARAMETER("system_info", "firmware_version", GIT_VERSION,

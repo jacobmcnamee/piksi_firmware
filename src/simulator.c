@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2014 Swift Navigation Inc.
+ * Copyright (C) 2012-2014, 2016 Swift Navigation Inc.
  * Contact: Fergus Noble <fergus@swift-nav.com>
  *
  * This source is subject to the license found in the file 'LICENSE' which must
@@ -29,6 +29,7 @@
 #include "solution.h"
 #include "board/leds.h"
 #include "sbp.h"
+#include "sbp_utils.h"
 
 #include "simulator_data.h"
 
@@ -312,8 +313,12 @@ void simulation_step_tracking_and_observations(double elapsed)
 
       /* As for tracking, we just set each sat consecutively in each channel. */
       /* This will cause weird jumps when a satellite rises or sets. */
-      sim_state.tracking_channel[num_sats_selected].state = TRACKING_RUNNING;
-      sim_state.tracking_channel[num_sats_selected].sid = simulation_almanacs[i].prn  + SIM_PRN_OFFSET;
+      gnss_signal_t sid = {
+        .code = simulation_almanacs[i].sid.code,
+        .sat = simulation_almanacs[i].sid.sat + SIM_PRN_OFFSET
+      };
+      sim_state.tracking_channel[num_sats_selected].state = 1;
+      sim_state.tracking_channel[num_sats_selected].sid = sid_to_sbp(sid);
       sim_state.tracking_channel[num_sats_selected].cn0 = sim_state.nav_meas[num_sats_selected].snr;
 
       num_sats_selected++;
@@ -330,7 +335,10 @@ void simulation_step_tracking_and_observations(double elapsed)
 */
 void populate_nav_meas(navigation_measurement_t *nav_meas, double dist, double elevation, int almanac_i)
 {
-  nav_meas->prn             =  simulation_almanacs[almanac_i].prn + SIM_PRN_OFFSET;
+  nav_meas->sid = (gnss_signal_t) {
+    .code = simulation_almanacs[almanac_i].sid.code,
+    .sat = simulation_almanacs[almanac_i].sid.sat + SIM_PRN_OFFSET
+  };
 
   nav_meas->raw_pseudorange =  dist;
   nav_meas->raw_pseudorange += rand_gaussian(sim_settings.pseudorange_sigma *

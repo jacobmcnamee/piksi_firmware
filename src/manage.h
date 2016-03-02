@@ -15,6 +15,7 @@
 
 #include <ch.h>
 #include <libswiftnav/common.h>
+#include <libswiftnav/signal.h>
 #include "board/nap/acq_channel.h"
 
 /** \addtogroup manage
@@ -22,6 +23,8 @@
 
 #define ACQ_THRESHOLD 37.0
 #define ACQ_RETRY_THRESHOLD 38.0
+
+#define TRACK_SNR_THRES_COUNT 2000
 
 /** How many ms to allow tracking channel to converge after
     initialization before we consider dropping it */
@@ -38,6 +41,10 @@
 /** If optimistic phase lock detector shows "unlocked" for >=
     TRACK_DROP_UNLOCKED_T ms, drop the channel. */
 #define TRACK_DROP_UNLOCKED_T 5000
+
+/** If pessimistic phase lock detector shows "locked" for >=
+    TRACK_USE_LOCKED_T ms, use the channel. */
+#define TRACK_USE_LOCKED_T 100
 
 /** How many milliseconds to wait for the tracking loops to
  * stabilize after any mode change before using obs. */
@@ -59,7 +66,7 @@
 
 void manage_acq_setup(void);
 
-void manage_set_obs_hint(u8 prn);
+void manage_set_obs_hint(gnss_signal_t sid);
 
 void manage_track_setup(void);
 s8 use_tracking_channel(u8 i);

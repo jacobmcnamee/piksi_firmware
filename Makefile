@@ -18,7 +18,7 @@ else
 	MAKEFLAGS += PRN=$(PRN)
 endif
 
-.PHONY: all tests firmware docs .FORCE
+.PHONY: all tests firmware docs hitl .FORCE
 
 all: firmware # tests
 
@@ -69,5 +69,19 @@ clean:
 docs:
 	$(MAKE) -C docs/diagrams
 	doxygen docs/Doxyfile
+
+hitl: firmware
+	# Usage:
+	# `make hitl` will run the default "quick" test plan (1 capture job)
+	# Optionally specify a desired test plan:
+	# `make hitl TEST_PLAN=merge` will run the "merge" test plan (10 capture jobs)
+	#
+	# First, this script will pull or clone the hitl_tools repo.
+	if cd build/hitl_tools; then \
+		git pull; \
+	else \
+		git clone git@github.com:swift-nav/hitl_tools.git build/hitl_tools --depth 1; \
+	fi
+	bash build/hitl_tools/make_hitl.sh $(TEST_PLAN)
 
 .FORCE:
