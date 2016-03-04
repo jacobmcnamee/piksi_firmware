@@ -93,6 +93,8 @@ static almanac_t almanac[PLATFORM_SIGNAL_COUNT];
 static float elevation_mask = 0.0; /* degrees */
 static bool sbas_enabled = false;
 
+static MUTEX_DECL(tracking_startup_mutex);
+
 static u8 manage_track_new_acq(gnss_signal_t sid);
 static void manage_acq(void);
 static void manage_track(void);
@@ -369,9 +371,15 @@ static void manage_acq()
     return;
   }
 
-  /* Make sure a tracking channel and a decoder channel are available */
-  u8 chan = manage_track_new_acq(acq->sid);
-  if (chan == MANAGE_NO_CHANNELS_FREE) {
+  tracking_startup_params_t tracking_startup_params = {
+    .sample_count = timer_count,
+    .carrier_freq = cf,
+    .carrier_phase = cp,
+    .cn0_init = cn0,
+    .elevation = TRACKING_ELEVATION_UNKNOWN
+  };
+
+  if (!tracking_startup(acq->sid, &tracking_startup_params)) {
     /* No channels are free to accept our new satellite :( */
     /* TODO: Perhaps we can try to warm start this one
      * later using another fine acq.
@@ -381,28 +389,9 @@ static void manage_acq()
       acq->dopp_hint_low = cf - ACQ_FULL_CF_STEP;
       acq->dopp_hint_high = cf + ACQ_FULL_CF_STEP;
     }
-    return;
+  } else {
+    acq->state = ACQ_PRN_TRACKING;
   }
-
-  /* Transition to tracking. */
-  u32 track_count = nap_timing_count() + 20000;
-  cp = propagate_code_phase(cp, cf, track_count - timer_count);
-
-  // Contrive for the timing strobe to occur at or close to a PRN edge (code phase = 0)
-  track_count += 16*(1023.0-cp)*(1.0 + cf / GPS_L1_HZ);
-
-  /* Start the tracking channel */
-  tracker_channel_init(chan, acq->sid, cf, track_count, cn0,
-                       TRACKING_ELEVATION_UNKNOWN);
-  /* TODO: Initialize elevation from ephemeris if we know it precisely */
-
-  /* Start the decoder channel */
-  if (!decoder_channel_init(chan, acq->sid)) {
-    log_error("decoder channel init failed");
-  }
-
-  acq->state = ACQ_PRN_TRACKING;
-  nap_timing_strobe_wait(100);
 }
 
 /** Find an available tracking channel to start tracking an acquired PRN with.
@@ -612,6 +601,61 @@ u8 tracking_channels_ready()
     }
   }
   return n_ready;
+}
+
+/* TODO: This function blocks while starting tracking within the NAP. It will
+ * likely be required to queue data if this function must be called from
+ * within the tracking loops.
+ */
+/** Start up tracking and decoding for the specified sid.
+ *
+ * \param sid               Signal to track and decode.
+ * \param startup_params    Struct containing
+ *
+ * \return true if tracking and decoding were started, false otherwise
+ */
+bool tracking_startup(gnss_signal_t sid,
+                      const tracking_startup_params_t *startup_params)
+{
+  bool result = false;
+  chMtxLock(&tracking_startup_mutex);
+  {
+    /* Make sure a tracking channel and a decoder channel are available */
+    u8 chan = manage_track_new_acq(sid);
+    if (chan != MANAGE_NO_CHANNELS_FREE) {
+
+      /* Transition to tracking. */
+      u32 track_count = nap_timing_count() + 20000;
+      float cp = propagate_code_phase(startup_params->carrier_phase,
+                                      startup_params->carrier_freq,
+                                      track_count -
+                                          startup_params->sample_count);
+
+      /* Contrive for the timing strobe to occur at or close to a
+       * PRN edge (code phase = 0) */
+      track_count += 16 * (1023.0-cp) *
+                        (1.0 + startup_params->carrier_freq / GPS_L1_HZ);
+
+      /* Start the tracking channel */
+      if(!tracker_channel_init(chan, sid, startup_params->carrier_freq,
+                               track_count, startup_params->cn0_init,
+                               TRACKING_ELEVATION_UNKNOWN)) {
+        log_error("tracker channel init failed");
+      }
+      /* TODO: Initialize elevation from ephemeris if we know it precisely */
+
+      /* Start the decoder channel */
+      if (!decoder_channel_init(chan, sid)) {
+        log_error("decoder channel init failed");
+      }
+
+      nap_timing_strobe_wait(100);
+      result = true;
+    }
+  }
+  Mutex *m = chMtxUnlock();
+  assert(m == &tracking_startup_mutex);
+  return result;
 }
 
 /** \} */
