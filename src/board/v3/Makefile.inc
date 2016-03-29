@@ -68,12 +68,12 @@ BOARDSRC := \
         $(BOARDDIR)/frontend.o \
         $(BOARDDIR)/init.o \
         $(BOARDDIR)/acq.o \
+        $(BOARDDIR)/usart_support.o \
         $(BOARDDIR)/nap/nap_dummy.o
 
 BOARDASM := \
         $(BOARDDIR)/cpu_init.s \
         $(BOARDDIR)/mmu_table.s \
-        $(BOARDDIR)/debug_vectors.s
 
 # Define linker script file here
 LDSCRIPT= $(BOARDDIR)/ZYNQ7000.ld

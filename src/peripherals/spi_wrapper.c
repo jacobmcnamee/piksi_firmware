@@ -11,6 +11,7 @@
  */
 
 #include <string.h>
+#include <assert.h>
 
 #include <ch.h>
 #include <hal.h>
@@ -23,9 +24,9 @@ static const struct {
   SPIDriver *driver;
   SPIConfig config;
 } spi_slave[] = {
-  [SPI_SLAVE_FPGA] = {&SPID1, {NULL, PAL_PORT(LINE_SPI1NSS), PAL_PAD(LINE_SPI1NSS), 0}},
-  [SPI_SLAVE_FLASH] = {&SPID2, {NULL, PAL_PORT(LINE_SPI2NSS_FLASH), PAL_PAD(LINE_SPI2NSS_FLASH), 0}},
-  [SPI_SLAVE_FRONTEND] = {&SPID2, {NULL, PAL_PORT(LINE_SPI2NSS_MAX), PAL_PAD(LINE_SPI2NSS_MAX), 0}},
+  [SPI_SLAVE_FPGA] = {&SPID1, {NULL, PAL_PORT(LINE_SPI1NSS), PAL_PAD(LINE_SPI1NSS), 0, false}},
+  [SPI_SLAVE_FLASH] = {&SPID2, {NULL, PAL_PORT(LINE_SPI2NSS_FLASH), PAL_PAD(LINE_SPI2NSS_FLASH), 0, true}},
+  [SPI_SLAVE_FRONTEND] = {&SPID2, {NULL, PAL_PORT(LINE_SPI2NSS_MAX), PAL_PAD(LINE_SPI2NSS_MAX), 0, true}},
 };
 
 /** Set up the SPI buses.
@@ -91,10 +92,19 @@ u8 spi_slave_xfer(u8 slave, u8 data)
 
 void spi_slave_xfer_async(u8 slave, u16 n_bytes, u8 data_in[], const u8 data_out[])
 {
-  if (data_in != NULL)
-    spiExchange(spi_slave[slave].driver, n_bytes, data_out, data_in);
-  else
-    spiSend(spi_slave[slave].driver, n_bytes, data_out);
+  /* We use a static buffer here for DMA transfers as data_in/data_out
+   * often are on the stack in CCM which is not accessible by DMA.
+   */
+  static u8 spi_dma_buf[128];
+  assert (n_bytes <= sizeof(spi_dma_buf));
+  memcpy(spi_dma_buf, data_out, n_bytes);
+
+  if (data_in != NULL) {
+    spiExchange(spi_slave[slave].driver, n_bytes, spi_dma_buf, spi_dma_buf);
+    memcpy(data_in, spi_dma_buf, n_bytes);
+  } else {
+    spiSend(spi_slave[slave].driver, n_bytes, spi_dma_buf);
+  }
 }
 
 /** \} */
