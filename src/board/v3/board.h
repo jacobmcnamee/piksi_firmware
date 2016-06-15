@@ -22,8 +22,8 @@
 #define IRQ_ID_NAP_TRACK IRQ_ID_FPGA3
 #define NAP_IRQ_PRIORITY 4
 
-#define SD_FTDI  (&SD2)
-#define SD_UARTA (&SD1)
+#define SD_FTDI  NULL
+#define SD_UARTA NULL
 #define SD_UARTB NULL
 
 /*

@@ -23,6 +23,8 @@ ifeq ($(PIKSI_HW),)
 endif
 
 MAKEFLAGS += PIKSI_HW=$(PIKSI_HW)
+FW_DEPS=libsbp/c/build/src/libsbp-static.a \
+		libswiftnav/build/src/libswiftnav-static.a
 
 ifeq ($(PIKSI_HW),v2)
 	CMAKEFLAGS += -DCMAKE_SYSTEM_PROCESSOR=cortex-m4
@@ -30,13 +32,14 @@ endif
 
 ifeq ($(PIKSI_HW),v3)
 	CMAKEFLAGS += -DCMAKE_SYSTEM_PROCESSOR=cortex-a9
+	FW_DEPS += open-amp/build/lib/libopen-amp.a
 endif
 
 .PHONY: all tests firmware docs hitl_setup hitl hitlv3 .FORCE
 
 all: firmware # tests
 
-firmware: libsbp/c/build/src/libsbp-static.a libswiftnav/build/src/libswiftnav-static.a
+firmware: $(FW_DEPS)
 	@printf "BUILD   src\n"; \
 	$(MAKE) -r -C src $(MAKEFLAGS)
 
@@ -60,6 +63,13 @@ libswiftnav/build/src/libswiftnav-static.a: .FORCE
 	cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE=../cmake/Toolchain-gcc-arm-embedded.cmake $(CMAKEFLAGS) ../
 	$(MAKE) -C libswiftnav/build $(MAKEFLAGS)
 
+open-amp/build/lib/libopen-amp.a:
+	@printf "BUILD   open-amp\n"; \
+	mkdir -p open-amp/build; cd open-amp/build; \
+	cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_TOOLCHAIN_FILE=../cmake/platforms/Toolchain-gcc-arm-embedded.cmake \
+		  -DWITH_OBSOLETE=on -DWITH_APPS=off -DCMAKE_SYSTEM_PROCESSOR=cortex-a9 -DMACHINE=zynq7 $(CMAKEFLAGS) ../
+	$(MAKE) -C open-amp/build $(MAKEFLAGS)
+
 clean:
 	@printf "CLEAN   src\n"; \
 	$(MAKE) -C src $(MAKEFLAGS) clean
@@ -67,6 +77,8 @@ clean:
 	$(RM) -rf libsbp/c/build
 	@printf "CLEAN   libswiftnav\n"; \
 	$(RM) -rf libswiftnav/build
+	@printf "CLEAN   open-amp\n"; \
+	$(RM) -rf open-amp/build
 	$(Q)for i in tests/*; do \
 		if [ -d $$i ]; then \
 			printf "CLEAN   $$i\n"; \

@@ -18,49 +18,41 @@ void usart_support_init(void)
 
 void usart_support_set_parameters(void *sd, u32 baud)
 {
-  if (sd == NULL)
-    return;
-
-  SerialConfig config = {
-    .speed = baud,
-  };
-  sdStop(sd);
-
-  /* NOTE This depends on the SerialDriver not keeping the config struct. */
-  sdStart(sd, &config);
+  (void)sd;
+  (void)baud;
 }
 
 void usart_support_disable(void *sd)
 {
-  if (sd == NULL)
-    return;
-
-  sdStop(sd);
+  (void)sd;
 }
 
 u32 usart_support_n_read(void *sd)
 {
-  chSysLock();
-  u32 n = chQSpaceI(&((SerialDriver*)sd)->iqueue);
-  chSysUnlock();
-  return n;
+  (void)sd;
+  return 0;
 }
 
 u32 usart_support_tx_n_free(void *sd)
 {
-  chSysLock();
-  u32 n = chQSpaceI(&((SerialDriver*)sd)->oqueue);
-  chSysUnlock();
-  return n;
+  (void)sd;
+  return 0;
 }
 
 u32 usart_support_read_timeout(void *sd, u8 data[], u32 len, u32 timeout)
 {
-  return chnReadTimeout((SerialDriver*)sd, data, len, timeout);
+  (void)sd;
+  (void)data;
+  (void)len;
+  (void)timeout;
+  return 0;
 }
 
 u32 usart_support_write(void *sd, const u8 data[], u32 len)
 {
-  return chnWriteTimeout((SerialDriver*)sd, data, len, TIME_IMMEDIATE);
+  (void)sd;
+  (void)data;
+  (void)len;
+  return 0;
 }
 

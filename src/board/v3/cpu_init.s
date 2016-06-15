@@ -39,17 +39,6 @@ invalidate_dcache_ret:
     bic r0, r0, #0x1                /* clear M bit */
     mcr p15, 0, r0, c1, c0, 0       /* write SCTLR */
 
-    /* Invalidate scu */
-    ldr r7, =0xf8f0000c
-    ldr r6, =0xffff
-    str r6, [r7]
-
-    /* Set scu enable bit */
-    ldr r7, =0xf8f00000
-    ldr r0, [r7]
-    orr r0, r0, #0x1
-    str r0, [r7]
-
     /* Set MMU TTB0 base */
     ldr r0, =MMUTable               /* Load MMU translation table base */
     orr r0, r0, #0x5B               /* Outer-cacheable, WB */

@@ -22,8 +22,8 @@
  */
 MEMORY
 {
-    flash : org = 0x00100000, len = 1M
-    ram0  : org = 0x00100000 + 1M, len = 10M
+    flash : org = 512M-32M, len = 1M
+    ram0  : org = 512M-32M+1M, len = 10M
     ram1  : org = 0x00000000, len = 0
     ram2  : org = 0x00000000, len = 0
     ram3  : org = 0x00000000, len = 0
@@ -51,6 +51,13 @@ SECTIONS {
         PROVIDE(__mmu_tbl_start = .);
         *(.mmu_tbl)
         PROVIDE(__mmu_tbl_end = .);
+    } > flash
+
+    .resource_table :
+    {
+        __rtable_start = .;
+        KEEP(*(.resource_table))
+        __rtable_end = .;
     } > flash
 }
 

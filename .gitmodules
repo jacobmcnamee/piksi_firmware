@@ -10,3 +10,6 @@
 [submodule "gdb_chibios"]
 	path = gdb_chibios
 	url = https://github.com/gsmcmullin/gdb_chibios.git
+[submodule "open-amp"]
+	path = open-amp
+	url = https://github.com/jacobmcnamee/open-amp.git

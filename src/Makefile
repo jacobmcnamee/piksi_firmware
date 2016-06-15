@@ -216,10 +216,11 @@ DLIBDIR = $(SWIFTNAV_ROOT)/libsbp/c/build/src \
           $(SWIFTNAV_ROOT)/libswiftnav/build/clapack-3.2.1-CMAKE/BLAS/SRC \
           $(SWIFTNAV_ROOT)/libswiftnav/build/clapack-3.2.1-CMAKE/SRC \
           $(SWIFTNAV_ROOT)/libswiftnav/build/clapack-3.2.1-CMAKE/F2CLIBS/libf2c \
-          $(SWIFTNAV_ROOT)/libswiftnav/build/src
+          $(SWIFTNAV_ROOT)/libswiftnav/build/src \
+          $(BOARDLIBDIR)
 
 # List all default libraries here
-DLIBS = -lsbp-static -lswiftnav-static \
+DLIBS = $(BOARDLIBS) -lsbp-static -lswiftnav-static \
         -llapack -lcblas -lblas \
         -lf2c -lm -lc -lnosys
 

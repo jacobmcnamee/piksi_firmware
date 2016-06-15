@@ -32,6 +32,8 @@
 #define ZYNQ7000_CPU_2x_FREQUENCY_Hz                222200000U
 #define ZYNQ7000_CPU_1x_FREQUENCY_Hz                111100000U
 
+#define ZYNQ7000_GIC_ICD_MASTER                     FALSE
+
 /*
  * ST driver system settings.
  */

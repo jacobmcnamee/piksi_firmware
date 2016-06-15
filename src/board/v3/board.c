@@ -50,6 +50,9 @@ void boardInit(void)
   /* Unlock SLCR */
   *(volatile uint32_t *)0xF8000008 = 0xDF0D;
 
+  /* Enable GPIO clock */
+  *(volatile uint32_t *)0xF800012C |= (1 << 22);
+
   /* Enable UART0 and UART1 clocks */
   *(volatile uint32_t *)0xF800012C |= (1 << 20) | (1 << 21);
 
